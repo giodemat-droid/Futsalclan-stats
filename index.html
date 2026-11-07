@@ -190,6 +190,7 @@
             border-radius: 8px;
             font-size: 0.9rem;
             outline: none;
+            width: 100%;
         }
 
         /* Classifica Table */
@@ -601,15 +602,27 @@
                     <button class="btn btn-sm" onclick="salvaFirebaseConfig()">Connetti Cloud</button>
                 </div>
 
+                <!-- SELEZIONE PARTITA DA VOTARE -->
                 <div class="input-group">
-                    <select id="voter-name-select" onchange="inipaginaVotazione()" style="flex:1;">
+                    <select id="voting-match-select" onchange="onVotingMatchChange()">
+                        <option value="">-- Seleziona la partita da votare --</option>
+                    </select>
+                </div>
+
+                <!-- AVVISO VOTAZIONI CHIUSE -->
+                <div id="voting-locked-notice" style="display:none; background: #331111; border: 1px solid var(--danger); color: #ff8888; padding: 10px; border-radius: 8px; font-size: 0.85rem; margin-bottom: 10px; text-align: center;">
+                    🔒 <strong>Votazioni Chiuse:</strong> È già stata registrata una partita successiva a questa. Non è più possibile inviare o modificare i voti.
+                </div>
+
+                <div class="input-group" id="voter-select-wrapper">
+                    <select id="voter-name-select" onchange="inipaginaVotazione()">
                         <option value="">-- Chi sei? (Seleziona il tuo nome) --</option>
                     </select>
                 </div>
 
                 <div id="voting-fields-container" style="display:none;">
                     <div style="font-size:0.8rem; color:var(--text-light); margin-bottom:10px;">
-                        Assegna un voto (da 0 a 10, ammessi i mezzi voti) ai tuoi compagni di partita:
+                        Assegna un voto (da 0 a 10, ammessi i mezzi voti) ai tuoi compagni di squadra di questa partita:
                     </div>
                     <div id="voti-players-list"></div>
                     <button class="btn btn-success" style="margin-top:10px;" onclick="inviaVotiCloud()"><i class="fas fa-paper-plane"></i> Invia i miei Voti</button>
@@ -619,7 +632,7 @@
             <!-- CARD PAGELLONE GENERALE -->
             <div class="card">
                 <div class="card-title">
-                    <span>Pagellone Partita</span>
+                    <span>Pagellone Partita Selezionata</span>
                     <button class="btn btn-sm btn-secondary" onclick="copiaPagelleWA()"><i class="fab fa-whatsapp"></i> Copia WA</button>
                 </div>
                 <div class="table-responsive">
@@ -799,7 +812,7 @@
             renderPresentiSelector();
             renderStorico();
             renderGiocatoriList();
-            popolaSelectVotanti();
+            popolaSelectMatchVotazione();
             renderPagellone();
         }
 
@@ -915,8 +928,7 @@
                 const label = document.createElement('label');
                 label.className = 'player-checkbox';
                 label.innerHTML = `
-                    <input type="checkbox" value="${p}" onchange="updatePresentiCount()" ${currentMatch.presenti.includes(p) ? 'checked' : ''}>
-                    ${p}
+                    <input type="checkbox" value="${p}" onchange="updatePresentiCount()" ${currentMatch.presenti.includes(p) ? 'checked' : ''}>${p}
                 `;
                 container.appendChild(label);
             });
@@ -1003,8 +1015,7 @@
             li.innerHTML = `
                 <div class="player-row-top">
                     <span>
-                        <strong>${player}</strong>
-                        ${isCap ? '<span class="captain-badge">👑 (C)</span>' : ''}
+                        <strong>${player}</strong>${isCap ? '<span class="captain-badge">👑 (C)</span>' : ''}
                     </span>
                     <button class="btn-ctrl btn-cap ${isCap ? 'is-cap' : ''}" onclick="setCapitano('${player}', '${team}')">Cap</button>
                 </div>
@@ -1105,287 +1116,19 @@
             switchTab('classifica');
         }
 
-        function getLatestMatchPlayers() {
-            if (matches.length === 0) return players;
-            const last = matches[0];
-            return [...last.teamGialli, ...last.teamNeri];
+        /* --- LOGICA DI VOTAZIONE E PAGELLE AGGIORNATA --- */
+        function getSelectedMatchId() {
+            const sel = document.getElementById('voting-match-select');
+            return sel && sel.value ? parseInt(sel.value) : (matches.length > 0 ? matches[0].id : null);
         }
 
-        function popolaSelectVotanti() {
-            const select = document.getElementById('voter-name-select');
-            select.innerHTML = '<option value="">-- Chi sei? (Seleziona il tuo nome) --</option>';
-            const activePlayers = getLatestMatchPlayers();
-            activePlayers.sort().forEach(p => {
-                select.innerHTML += `<option value="${p}">${p}</option>`;
-            });
-        }
-
-        function inipaginaVotazione() {
-            const voter = document.getElementById('voter-name-select').value;
-            const container = document.getElementById('voting-fields-container');
-            const list = document.getElementById('voti-players-list');
-
-            if (!voter) {
-                container.style.display = 'none';
-                return;
-            }
-
-            container.style.display = 'block';
-            list.innerHTML = '';
-
-            const activePlayers = getLatestMatchPlayers().filter(p => p !== voter);
+        function popolaSelectMatchVotazione() {
+            const sel = document.getElementById('voting-match-select');
+            if (!sel) return;
             
-            let matchId = matches.length > 0 ? matches[0].id : 1;
-            let existingVoti = (ratings[matchId] && ratings[matchId][voter]) ? ratings[matchId][voter] : {};
+            const currentSelected = sel.value;
+            sel.innerHTML = '<option value="">-- Seleziona la partita da votare --</option>';
 
-            activePlayers.sort().forEach(target => {
-                let currentVal = existingVoti[target] !== undefined ? existingVoti[target] : 6.0;
-
-                let optionsHtml = '';
-                for (let v = 0; v <= 10; v += 0.5) {
-                    let sel = (v === currentVal) ? 'selected' : '';
-                    optionsHtml += `<option value="${v}" ${sel}>${v.toFixed(1)}</option>`;
-                }
-
-                const div = document.createElement('div');
-                div.className = 'vote-card';
-                div.innerHTML = `
-                    <span><strong>${target}</strong></span>
-                    <select class="vote-select" data-target="${target}">
-                        ${optionsHtml}
-                    </select>
-                `;
-                list.appendChild(div);
-            });
-        }
-
-        function inviaVotiCloud() {
-            const voter = document.getElementById('voter-name-select').value;
-            if (!voter) return;
-
-            let matchId = matches.length > 0 ? matches[0].id : 1;
-            if (!ratings[matchId]) ratings[matchId] = {};
-            if (!ratings[matchId][voter]) ratings[matchId][voter] = {};
-
-            const selects = document.querySelectorAll('.vote-select');
-            selects.forEach(sel => {
-                const target = sel.getAttribute('data-target');
-                const val = parseFloat(sel.value);
-                ratings[matchId][voter][target] = val;
-            });
-
-            saveData();
-
-            if (dbRef) {
-                dbRef.child(matchId).child(voter).set(ratings[matchId][voter]);
-            }
-
-            alert("Voti inviati con successo!");
-            renderPagellone();
-        }
-
-        function renderPagellone() {
-            const tbody = document.getElementById('tbody-pagellone');
-            tbody.innerHTML = '';
-
-            if (matches.length === 0) return;
-            let matchId = matches[0].id;
-
-            let matchRatings = ratings[matchId] || {};
-            let totals = {};
-            let counts = {};
-
-            for (let voter in matchRatings) {
-                for (let target in matchRatings[voter]) {
-                    let v = matchRatings[voter][target];
-                    totals[target] = (totals[target] || 0) + v;
-                    counts[target] = (counts[target] || 0) + 1;
-                }
-            }
-
-            const activePlayers = getLatestMatchPlayers();
-            let summary = activePlayers.map(p => {
-                let cnt = counts[p] || 0;
-                let avg = cnt > 0 ? (totals[p] / cnt).toFixed(2) : '-';
-                return { name: p, avg: avg, count: cnt };
-            });
-
-            summary.sort((a, b) => (b.avg === '-' ? -1 : b.avg - a.avg));
-
-            summary.forEach(item => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td><strong>${item.name}</strong></td>
-                    <td class="number"><span class="avg-badge">${item.avg}</span></td>
-                    <td class="number">${item.count}</td>
-                `;
-                tbody.appendChild(tr);
-            });
-        }
-
-        function copiaPagelleWA() {
-            if (matches.length === 0) return;
-            let matchId = matches[0].id;
-            let matchRatings = ratings[matchId] || {};
-            let totals = {};
-            let counts = {};
-
-            for (let voter in matchRatings) {
-                for (let target in matchRatings[voter]) {
-                    let v = matchRatings[voter][target];
-                    totals[target] = (totals[target] || 0) + v;
-                    counts[target] = (counts[target] || 0) + 1;
-                }
-            }
-
-            const activePlayers = getLatestMatchPlayers();
-            let summary = activePlayers.map(p => {
-                let cnt = counts[p] || 0;
-                let avg = cnt > 0 ? (totals[p] / cnt).toFixed(2) : '-';
-                return { name: p, avg: avg };
-            });
-
-            summary.sort((a, b) => (b.avg === '-' ? -1 : b.avg - a.avg));
-
-            let text = `📊 *PAGELLONE FUTSAL CLAN*\n\n`;
-            summary.forEach(s => {
-                text += `• *${s.name}*: ${s.avg}\n`;
-            });
-
-            navigator.clipboard.writeText(text).then(() => {
-                alert("Pagelle copiate negli appunti! Ora puoi incollarle su WhatsApp.");
-            });
-        }
-
-        function renderStorico() {
-            const container = document.getElementById('lista-storico');
-            container.innerHTML = '';
-
-            if (matches.length === 0) {
-                container.innerHTML = '<div class="card">Nessuna partita registrata.</div>';
-                return;
-            }
-
+            // Ordina le partite cronologicamente o per ID recente
             matches.forEach(m => {
-                const card = document.createElement('div');
-                card.className = 'card history-card';
-
-                let eventsSummary = [];
-                if (m.goals) {
-                    for (let [p, g] of Object.entries(m.goals)) eventsSummary.push(`${p} (${g}⚽)`);
-                }
-                if (m.autogol) {
-                    for (let [p, g] of Object.entries(m.autogol)) eventsSummary.push(`${p} (${g} Autogol)`);
-                }
-                if (m.rigoriSbagliati) {
-                    for (let [p, g] of Object.entries(m.rigoriSbagliati)) eventsSummary.push(`${p} (${g} Rigore Sbagliato)`);
-                }
-
-                const gialliList = m.teamGialli.map(p => p === m.capitanoGialli ? `${p} 👑` : p).join(', ');
-                const neriList = m.teamNeri.map(p => p === m.capitanoNeri ? `${p} 👑` : p).join(', ');
-
-                card.innerHTML = `
-                    <div class="card-title">
-                        <span>Partita del ${m.date}</span>
-                        <div>
-                            <button class="btn btn-sm btn-secondary" onclick="modificaPartita(${m.id})" style="margin-right:4px;"><i class="fas fa-edit"></i> Modifica</button>
-                            <button class="btn btn-sm btn-danger" onclick="eliminaPartita(${m.id})"><i class="fas fa-trash"></i></button>
-                        </div>
-                    </div>
-                    <div style="text-align:center; font-weight:bold; font-size:1.2rem; margin-bottom:8px;">
-                        <span style="color: #fbc02d;">GIALLI ${m.scoreGialli}</span> - <span style="color: #aaa;">${m.scoreNeri} NERI</span>
-                    </div>
-                    
-                    <div class="team-container" style="margin-bottom: 8px;">
-                        <div style="font-size: 0.75rem;">
-                            <strong style="color: #fbc02d;">GIALLI:</strong><br>${gialliList}
-                        </div>
-                        <div style="font-size: 0.75rem;">
-                            <strong style="color: #aaa;">NERI:</strong><br>${neriList}
-                        </div>
-                    </div>
-
-                    ${eventsSummary.length > 0 ? `
-                        <div style="font-size: 0.78rem; color: #ccc; background: #222; padding: 6px; border-radius: 4px; border: 1px solid #333;">
-                            <strong>Eventi:</strong> ${eventsSummary.join(', ')}
-                        </div>
-                    ` : ''}
-                `;
-
-                container.appendChild(card);
-            });
-        }
-
-        function modificaPartita(id) {
-            const m = matches.find(match => match.id === id);
-            if (!m) return;
-
-            editingMatchId = m.id;
-            document.getElementById('match-editor-title').innerText = "Modifica Partita #" + m.id;
-            document.getElementById('match-date').value = m.date;
-            document.getElementById('score-gialli').value = m.scoreGialli;
-            document.getElementById('score-neri').value = m.scoreNeri;
-
-            currentMatch = {
-                presenti: [...m.teamGialli, ...m.teamNeri],
-                teamGialli: [...m.teamGialli],
-                teamNeri: [...m.teamNeri],
-                capitanoGialli: m.capitanoGialli || null,
-                capitanoNeri: m.capitanoNeri || null,
-                goals: {...(m.goals || {})},
-                autogol: {...(m.autogol || {})},
-                rigoriSbagliati: {...(m.rigoriSbagliati || {})}
-            };
-
-            switchTab('partita');
-            renderPresentiSelector();
-            procediAFormazioni();
-        }
-
-        function eliminaPartita(id) {
-            if (confirm("Eliminare questa partita dallo storico?")) {
-                matches = matches.filter(m => m.id !== id);
-                saveData();
-            }
-        }
-
-        function renderGiocatoriList() {
-            const ul = document.getElementById('lista-giocatori-full');
-            ul.innerHTML = '';
-
-            players.sort().forEach(p => {
-                const li = document.createElement('li');
-                li.className = 'team-player-item';
-                li.style.flexDirection = 'row';
-                li.style.justifyContent = 'space-between';
-                li.innerHTML = `
-                    <span><strong>${p}</strong></span>
-                    <button class="btn btn-sm btn-danger" onclick="eliminaGiocatore('${p}')"><i class="fas fa-times"></i></button>
-                `;
-                ul.appendChild(li);
-            });
-        }
-
-        function aggiungiGiocatore() {
-            const input = document.getElementById('new-player-name');
-            const name = input.value.trim();
-            if (name && !players.includes(name)) {
-                players.push(name);
-                input.value = '';
-                saveData();
-            }
-        }
-
-        function eliminaGiocatore(name) {
-            if (confirm(`Eliminare ${name} dalla rosa dei giocatori?`)) {
-                players = players.filter(p => p !== name);
-                saveData();
-            }
-        }
-
-        function esportaPDF() {
-            window.print();
-        }
-    </script>
-</body>
-</html>
+                sel.innerHTML += `<option value="${m.id}">Partita del ${m.date} (Gialli ${m.scoreGialli} -${
