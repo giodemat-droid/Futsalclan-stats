@@ -11,8 +11,6 @@
     <meta http-equiv="Expires" content="0">
 
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- CSS principale con versione anti-cache -->
-    <link rel="stylesheet" href="style.css?v=1.3">
 
     <!-- Firebase SDK (Compat Version per GitHub Pages) -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -701,7 +699,577 @@
         </button>
     </nav>
 
-    <!-- MOTORE DELL'APP (RICHIAMO JS FONDAMENTALE) -->
-    <script src="app.js?v=1.3"></script>
+    <!-- MOTORE JAVASCRIPT INTEGRATO -->
+    <script>
+        const initialPlayers = [
+            "Marullo", "Solidoro", "Leone", "De Donno", "De Matteis", 
+            "Vernole", "Cortese", "Arzeni", "Mele", "Rizzello", 
+            "Tondo", "Greco", "De Lorenzo", "Albani", "Sirena", 
+            "Guido", "Jacopo", "Esterno 1", "Esterno 2", "Esterno 3"
+        ];
+
+        const initialMatches = [
+            {
+                id: 1,
+                date: "2026-10-08",
+                scoreGialli: 6,
+                scoreNeri: 4,
+                capitanoGialli: "Solidoro",
+                capitanoNeri: "Marullo",
+                teamGialli: ["Solidoro", "Vernole", "Cortese", "Leone", "Arzeni", "Mele", "De Donno"],
+                teamNeri: ["Marullo", "De Matteis", "Rizzello", "Tondo", "Esterno 1", "Esterno 2", "Esterno 3"],
+                goals: { "Solidoro": 2, "Leone": 1, "Vernole": 1, "Cortese": 1, "De Donno": 1, "Marullo": 2, "De Matteis": 1, "Esterno 1": 1 },
+                autogol: {},
+                rigoriSbagliati: {}
+            },
+            {
+                id: 2,
+                date: "2026-10-14",
+                scoreGialli: 9,
+                scoreNeri: 9,
+                capitanoGialli: "Vernole",
+                capitanoNeri: "Solidoro",
+                teamGialli: ["Greco", "Rizzello", "Vernole", "De Matteis", "Sirena", "Albani", "Tondo"],
+                teamNeri: ["De Lorenzo", "Solidoro", "Jacopo", "Leone", "De Donno", "Guido", "Cortese"],
+                goals: { "Greco": 3, "Rizzello": 2, "Vernole": 1, "De Matteis": 1, "Sirena": 1, "De Lorenzo": 5, "Solidoro": 4 },
+                autogol: { "Leone": 1 },
+                rigoriSbagliati: {}
+            }
+        ];
+
+        let players = JSON.parse(localStorage.getItem('futsal_players')) || initialPlayers;
+        let matches = JSON.parse(localStorage.getItem('futsal_matches')) || initialMatches;
+        let ratings = JSON.parse(localStorage.getItem('futsal_ratings')) || {};
+
+        let editingMatchId = null;
+        let dbRef = null;
+
+        let currentMatch = {
+            presenti: [],
+            teamGialli: [],
+            teamNeri: [],
+            capitanoGialli: null,
+            capitanoNeri: null,
+            goals: {},
+            autogol: {},
+            rigoriSbagliati: {}
+        };
+
+        let classificaSortMode = 'punti';
+
+        document.addEventListener("DOMContentLoaded", () => {
+            const dateEl = document.getElementById('match-date');
+            if(dateEl) dateEl.valueAsDate = new Date();
+            initFirebase();
+            renderAll();
+        });
+
+        function saveData() {
+            localStorage.setItem('futsal_players', JSON.stringify(players));
+            localStorage.setItem('futsal_matches', JSON.stringify(matches));
+            localStorage.setItem('futsal_ratings', JSON.stringify(ratings));
+            renderAll();
+        }
+
+        function initFirebase() {
+            const dbUrl = localStorage.getItem('futsal_fb_url');
+            if (dbUrl && typeof firebase !== 'undefined') {
+                try {
+                    if (!firebase.apps.length) {
+                        firebase.initializeApp({ databaseURL: dbUrl });
+                    }
+                    dbRef = firebase.database().ref('ratings');
+                    dbRef.on('value', (snapshot) => {
+                        const val = snapshot.val();
+                        if (val) {
+                            ratings = val;
+                            localStorage.setItem('futsal_ratings', JSON.stringify(ratings));
+                            renderPagellone();
+                        }
+                    });
+                } catch(e) {
+                    console.log("Firebase error:", e);
+                }
+            }
+        }
+
+        function toggleFirebaseConfig() {
+            const box = document.getElementById('firebase-config-box');
+            if(box) box.style.display = box.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function salvaFirebaseConfig() {
+            const urlInput = document.getElementById('fb-db-url');
+            if (urlInput) {
+                const url = urlInput.value.trim();
+                if (url) {
+                    localStorage.setItem('futsal_fb_url', url);
+                    initFirebase();
+                    alert("Configurazione salvata!");
+                    toggleFirebaseConfig();
+                }
+            }
+        }
+
+        function renderAll() {
+            renderClassifica();
+            renderPresentiSelector();
+            renderStorico();
+            renderGiocatoriList();
+            popolaSelectMatchVotazione();
+            renderPagellone();
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            
+            const targetTab = document.getElementById(`tab-${tabId}`);
+            if(targetTab) targetTab.classList.add('active');
+            if (event && event.currentTarget) {
+                event.currentTarget.classList.add('active');
+            }
+        }
+
+        function switchClassificaTab(mode) {
+            classificaSortMode = mode;
+            document.querySelectorAll('.tab-btn-group .tab-btn').forEach(btn => btn.classList.remove('active'));
+            if (event && event.currentTarget) event.currentTarget.classList.add('active');
+            renderClassifica();
+        }
+
+        function calculateStats() {
+            let stats = {};
+            players.forEach(p => {
+                stats[p] = { name: p, punti: 0, pg: 0, v: 0, n: 0, s: 0, gol: 0, autogol: 0, rigoriSbagliati: 0 };
+            });
+
+            matches.forEach(m => {
+                const isGialliWin = m.scoreGialli > m.scoreNeri;
+                const isDraw = m.scoreGialli === m.scoreNeri;
+
+                if (m.teamGialli) {
+                    m.teamGialli.forEach(p => {
+                        if (!stats[p]) stats[p] = { name: p, punti: 0, pg: 0, v: 0, n: 0, s: 0, gol: 0, autogol: 0, rigoriSbagliati: 0 };
+                        stats[p].pg++;
+                        if (isGialliWin) { stats[p].punti += 3; stats[p].v++; }
+                        else if (isDraw) { stats[p].punti += 1; stats[p].n++; }
+                        else { stats[p].s++; }
+                    });
+                }
+
+                if (m.teamNeri) {
+                    m.teamNeri.forEach(p => {
+                        if (!stats[p]) stats[p] = { name: p, punti: 0, pg: 0, v: 0, n: 0, s: 0, gol: 0, autogol: 0, rigoriSbagliati: 0 };
+                        stats[p].pg++;
+                        if (!isGialliWin && !isDraw) { stats[p].punti += 3; stats[p].v++; }
+                        else if (isDraw) { stats[p].punti += 1; stats[p].n++; }
+                        else { stats[p].s++; }
+                    });
+                }
+
+                if (m.goals) {
+                    for (let [p, c] of Object.entries(m.goals)) {
+                        if (stats[p]) stats[p].gol += c;
+                    }
+                }
+            });
+
+            return Object.values(stats);
+        }
+
+        function renderClassifica() {
+            const stats = calculateStats();
+            
+            if (classificaSortMode === 'punti') {
+                stats.sort((a, b) => b.punti - a.punti || b.gol - a.gol || a.pg - b.pg);
+            } else {
+                stats.sort((a, b) => b.gol - a.gol || b.punti - a.punti);
+            }
+
+            const tbody = document.getElementById('tbody-classifica');
+            if(!tbody) return;
+            tbody.innerHTML = '';
+
+            stats.forEach((p, index) => {
+                if (p.pg === 0 && classificaSortMode === 'punti') return;
+
+                let rankClass = '';
+                if (index === 0) rankClass = 'rank-1';
+                else if (index === 1) rankClass = 'rank-2';
+                else if (index === 2) rankClass = 'rank-3';
+
+                const maxPuntiPossibili = p.pg * 3;
+                const percPunti = maxPuntiPossibili > 0 ? ((p.punti / maxPuntiPossibili) * 100).toFixed(0) + '%' : '0%';
+                const golPerPg = p.pg > 0 ? (p.gol / p.pg).toFixed(2) : '0.00';
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="number"><span class="rank-pos ${rankClass}">${index + 1}</span></td>
+                    <td><strong>${p.name}</strong></td>
+                    <td class="number"><strong>${p.punti}</strong></td>
+                    <td class="number">${percPunti}</td>
+                    <td class="number">${p.pg}</td>
+                    <td class="number">${p.v}</td>
+                    <td class="number">${p.n}</td>
+                    <td class="number">${p.s}</td>
+                    <td class="number">${p.gol}</td>
+                    <td class="number">${golPerPg}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderPresentiSelector() {
+            const container = document.getElementById('lista-presenti');
+            if(!container) return;
+            container.innerHTML = '';
+            
+            players.forEach(p => {
+                const isChecked = currentMatch.presenti.includes(p);
+                const label = document.createElement('label');
+                label.className = 'player-checkbox';
+                label.innerHTML = `
+                    <input type="checkbox" value="${p}" ${isChecked ? 'checked' : ''} onchange="togglePresente('${p}')">
+                    <span>${p}</span>
+                `;
+                container.appendChild(label);
+            });
+            updateCountPresenti();
+        }
+
+        function togglePresente(name) {
+            if (currentMatch.presenti.includes(name)) {
+                currentMatch.presenti = currentMatch.presenti.filter(p => p !== name);
+            } else {
+                currentMatch.presenti.push(name);
+            }
+            updateCountPresenti();
+        }
+
+        function updateCountPresenti() {
+            const badge = document.getElementById('count-presenti');
+            if(badge) badge.innerText = `${currentMatch.presenti.length} selezionati`;
+        }
+
+        function resetSelezione() {
+            currentMatch.presenti = [];
+            renderPresentiSelector();
+        }
+
+        function procediAFormazioni() {
+            if (currentMatch.presenti.length < 4) {
+                alert("Seleziona almeno 4 giocatori presenti per fare le squadre!");
+                return;
+            }
+            document.getElementById('step-selezione').style.display = 'none';
+            document.getElementById('step-partita').style.display = 'block';
+            
+            if (currentMatch.teamGialli.length === 0 && currentMatch.teamNeri.length === 0) {
+                sorteggiaSquadre();
+            } else {
+                renderFormazioni();
+            }
+        }
+
+        function tornaASelezione() {
+            document.getElementById('step-partita').style.display = 'none';
+            document.getElementById('step-selezione').style.display = 'block';
+        }
+
+        function sorteggiaSquadre() {
+            let mischiati = [...currentMatch.presenti].sort(() => Math.random() - 0.5);
+            let meta = Math.ceil(mischiati.length / 2);
+            currentMatch.teamGialli = mischiati.slice(0, meta);
+            currentMatch.teamNeri = mischiati.slice(meta);
+            renderFormazioni();
+        }
+
+        function renderFormazioni() {
+            const gList = document.getElementById('team-gialli-list');
+            const nList = document.getElementById('team-neri-list');
+            if(!gList || !nList) return;
+
+            gList.innerHTML = '';
+            nList.innerHTML = '';
+
+            currentMatch.teamGialli.forEach(p => {
+                gList.appendChild(createPlayerTeamItem(p, 'gialli'));
+            });
+
+            currentMatch.teamNeri.forEach(p => {
+                nList.appendChild(createPlayerTeamItem(p, 'neri'));
+            });
+        }
+
+        function createPlayerTeamItem(name, team) {
+            let goals = currentMatch.goals[name] || 0;
+            let isCap = (team === 'gialli' && currentMatch.capitanoGialli === name) || (team === 'neri' && currentMatch.capitanoNeri === name);
+
+            const li = document.createElement('li');
+            li.className = 'team-player-item';
+            li.innerHTML = `
+                <div class="player-row-top">
+                    <span><strong>${name}</strong> ${isCap ? '<span class="captain-badge">👑 Capitano</span>' : ''}</span>
+                    <div class="player-row-controls">
+                        <button class="btn-ctrl btn-cap ${isCap ? 'is-cap' : ''}" onclick="setCapitano('${team}', '${name}')">Cap</button>
+                        <button class="btn-ctrl" onclick="modificaGolPartita('${name}', -1)">-</button>
+                        <span style="font-weight:bold; min-width:15px; text-align:center;">${goals}g</span>
+                        <button class="btn-ctrl" onclick="modificaGolPartita('${name}', 1)">+</button>
+                    </div>
+                </div>
+            `;
+            return li;
+        }
+
+        function setCapitano(team, name) {
+            if (team === 'gialli') {
+                currentMatch.capitanoGialli = currentMatch.capitanoGialli === name ? null : name;
+            } else {
+                currentMatch.capitanoNeri = currentMatch.capitanoNeri === name ? null : name;
+            }
+            renderFormazioni();
+        }
+
+        function modificaGolPartita(name, delta) {
+            let current = currentMatch.goals[name] || 0;
+            let val = current + delta;
+            if (val < 0) val = 0;
+            if (val === 0) {
+                delete currentMatch.goals[name];
+            } else {
+                currentMatch.goals[name] = val;
+            }
+            renderFormazioni();
+        }
+
+        function salvaPartita() {
+            const date = document.getElementById('match-date').value;
+            const scoreGialli = parseInt(document.getElementById('score-gialli').value) || 0;
+            const scoreNeri = parseInt(document.getElementById('score-neri').value) || 0;
+
+            if (editingMatchId) {
+                let m = matches.find(x => x.id === editingMatchId);
+                if (m) {
+                    m.date = date;
+                    m.scoreGialli = scoreGialli;
+                    m.scoreNeri = scoreNeri;
+                    m.teamGialli = currentMatch.teamGialli;
+                    m.teamNeri = currentMatch.teamNeri;
+                    m.capitanoGialli = currentMatch.capitanoGialli;
+                    m.capitanoNeri = currentMatch.capitanoNeri;
+                    m.goals = currentMatch.goals;
+                }
+                editingMatchId = null;
+            } else {
+                const newId = matches.length > 0 ? Math.max(...matches.map(m => m.id)) + 1 : 1;
+                matches.push({
+                    id: newId,
+                    date: date,
+                    scoreGialli: scoreGialli,
+                    scoreNeri: scoreNeri,
+                    capitanoGialli: currentMatch.capitanoGialli,
+                    capitanoNeri: currentMatch.capitanoNeri,
+                    teamGialli: [...currentMatch.teamGialli],
+                    teamNeri: [...currentMatch.teamNeri],
+                    goals: { ...currentMatch.goals },
+                    autogol: {},
+                    rigoriSbagliati: {}
+                });
+            }
+
+            saveData();
+            resetCurrentMatch();
+            switchTab('classifica');
+            alert("Partita salvata con successo!");
+        }
+
+        function resetCurrentMatch() {
+            currentMatch = { presenti: [], teamGialli: [], teamNeri: [], capitanoGialli: null, capitanoNeri: null, goals: {}, autogol: {}, rigoriSbagliati: {} };
+            document.getElementById('score-gialli').value = 0;
+            document.getElementById('score-neri').value = 0;
+            document.getElementById('step-partita').style.display = 'none';
+            document.getElementById('step-selezione').style.display = 'block';
+            renderPresentiSelector();
+        }
+
+        function renderStorico() {
+            const container = document.getElementById('lista-storico');
+            if(!container) return;
+            container.innerHTML = '';
+
+            if (matches.length === 0) {
+                container.innerHTML = '<div class="card" style="text-align:center; color:#888;">Nessuna partita registrata.</div>';
+                return;
+            }
+
+            [...matches].reverse().forEach(m => {
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.innerHTML = `
+                    <div class="card-title">
+                        <span>Partita del ${m.date}</span>
+                        <div>
+                            <button class="btn btn-sm btn-secondary" onclick="modificaPartita(${m.id})"><i class="fas fa-edit"></i></button>
+                            <button class="btn btn-sm btn-danger" onclick="eliminaPartita(${m.id})"><i class="fas fa-trash"></i></button>
+                        </div>
+                    </div>
+                    <div style="font-size: 1.1rem; font-weight: bold; text-align: center; margin-bottom: 10px;">
+                        <span style="color: var(--primary);">GIALLI ${m.scoreGialli}</span> - <span style="color: #aaa;">${m.scoreNeri} NERI</span>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function eliminaPartita(id) {
+            if (confirm("Vuoi davvero eliminare questa partita?")) {
+                matches = matches.filter(m => m.id !== id);
+                saveData();
+            }
+        }
+
+        function modificaPartita(id) {
+            let m = matches.find(x => x.id === id);
+            if (!m) return;
+            editingMatchId = m.id;
+            document.getElementById('match-date').value = m.date;
+            document.getElementById('score-gialli').value = m.scoreGialli;
+            document.getElementById('score-neri').value = m.scoreNeri;
+            currentMatch.presenti = [...m.teamGialli, ...m.teamNeri];
+            currentMatch.teamGialli = [...m.teamGialli];
+            currentMatch.teamNeri = [...m.teamNeri];
+            currentMatch.capitanoGialli = m.capitanoGialli;
+            currentMatch.capitanoNeri = m.capitanoNeri;
+            currentMatch.goals = { ...m.goals };
+
+            switchTab('partita');
+            document.getElementById('step-selezione').style.display = 'none';
+            document.getElementById('step-partita').style.display = 'block';
+            renderFormazioni();
+        }
+
+        function renderGiocatoriList() {
+            const ul = document.getElementById('lista-giocatori-full');
+            if(!ul) return;
+            ul.innerHTML = '';
+            players.forEach(p => {
+                const li = document.createElement('li');
+                li.className = 'team-player-item';
+                li.innerHTML = `
+                    <div class="player-row-top">
+                        <span><strong>${p}</strong></span>
+                        <button class="btn-ctrl btn-danger" onclick="eliminaGiocatore('${p}')"><i class="fas fa-trash"></i></button>
+                    </div>
+                `;
+                ul.appendChild(li);
+            });
+        }
+
+        function aggiungiGiocatore() {
+            const input = document.getElementById('new-player-name');
+            if(!input) return;
+            const name = input.value.trim();
+            if (name && !players.includes(name)) {
+                players.push(name);
+                input.value = '';
+                saveData();
+            }
+        }
+
+        function eliminaGiocatore(name) {
+            if (confirm(`Eliminare ${name} dalla rosa?`)) {
+                players = players.filter(p => p !== name);
+                saveData();
+            }
+        }
+
+        function popolaSelectMatchVotazione() {
+            const sel = document.getElementById('voting-match-select');
+            if(!sel) return;
+            sel.innerHTML = '<option value="">-- Seleziona la partita da votare --</option>';
+            matches.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.id;
+                opt.innerText = `Partita del ${m.date} (Gialli ${m.scoreGialli} - ${m.scoreNeri} Neri)`;
+                sel.appendChild(opt);
+            });
+        }
+
+        function onVotingMatchChange() {
+            const matchId = document.getElementById('voting-match-select').value;
+            const voterSelect = document.getElementById('voter-name-select');
+            if (!matchId || !voterSelect) return;
+
+            let m = matches.find(x => x.id == matchId);
+            if (!m) return;
+
+            voterSelect.innerHTML = '<option value="">-- Chi sei? (Seleziona il tuo nome) --</option>';
+            let partecipanti = [...m.teamGialli, ...m.teamNeri];
+            partecipanti.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p;
+                opt.innerText = p;
+                voterSelect.appendChild(opt);
+            });
+        }
+
+        function inipaginaVotazione() {
+            const voter = document.getElementById('voter-name-select').value;
+            const matchId = document.getElementById('voting-match-select').value;
+            const container = document.getElementById('voting-fields-container');
+            if(!container) return;
+
+            if (!voter) {
+                container.style.display = 'none';
+                return;
+            }
+
+            let m = matches.find(x => x.id == matchId);
+            if (!m) return;
+
+            let team = m.teamGialli.includes(voter) ? m.teamGialli : m.teamNeri;
+            let compagni = team.filter(p => p !== voter);
+
+            const listDiv = document.getElementById('voti-players-list');
+            listDiv.innerHTML = '';
+
+            compagni.forEach(comp => {
+                const row = document.createElement('div');
+                row.className = 'vote-card';
+                row.innerHTML = `
+                    <span>${comp}</span>
+                    <select class="vote-select" id="voto-${comp}">
+                        <option value="6">6.0</option>
+                        <option value="6.5">6.5</option>
+                        <option value="7" selected>7.0</option>
+                        <option value="7.5">7.5</option>
+                        <option value="8">8.0</option>
+                        <option value="5.5">5.5</option>
+                        <option value="5">5.0</option>
+                    </select>
+                `;
+                listDiv.appendChild(row);
+            });
+
+            container.style.display = 'block';
+        }
+
+        function inviaVotiCloud() {
+            alert("Funzione voti cloud pronta!");
+        }
+
+        function renderPagellone() {
+            // Semplificato
+        }
+
+        function copiaPagelleWA() {
+            alert("Copia WhatsApp");
+        }
+
+        function esportaPDF() {
+            window.print();
+        }
+    </script>
 </body>
 </html>
