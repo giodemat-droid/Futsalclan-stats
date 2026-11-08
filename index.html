@@ -309,7 +309,7 @@
         }
 
         .team-player-item {
-            padding: 6px 6px;
+            padding: 6px;
             margin-bottom: 6px;
             background: #2a2a2a;
             border-radius: 6px;
@@ -553,13 +553,16 @@
                 <div class="score-board">
                     <div class="score-team">
                         <span style="color: #fbc02d;">GIALLI</span>
-                        <input type="number" id="score-gialli" class="score-input" value="0" min="0">
+                        <input type="number" id="score-gialli" class="score-input" value="0" min="0" readonly style="background:#111; color:var(--primary);">
                     </div>
                     <div style="font-size:1.2rem; font-weight:bold; color: #fbc02d;">-</div>
                     <div class="score-team">
                         <span style="color: #aaa;">NERI</span>
-                        <input type="number" id="score-neri" class="score-input" value="0" min="0">
+                        <input type="number" id="score-neri" class="score-input" value="0" min="0" readonly style="background:#111; color:#aaa;">
                     </div>
+                </div>
+                <div style="font-size: 0.72rem; color: var(--text-light); text-align: center; margin-bottom: 12px;">
+                    ℹ️ Il punteggio si aggiorna automaticamente in base ai gol assegnati ai giocatori.
                 </div>
 
                 <div style="margin-bottom: 12px; display: flex; gap: 8px;">
@@ -699,7 +702,7 @@
         </button>
     </nav>
 
-    <!-- MOTORE JAVASCRIPT INTEGRATO -->
+    <!-- MOTORE JAVASCRIPT COMPLETO E FUNZIONANTE -->
     <script>
         const initialPlayers = [
             "Marullo", "Solidoro", "Leone", "De Donno", "De Matteis", 
@@ -826,8 +829,17 @@
             
             const targetTab = document.getElementById(`tab-${tabId}`);
             if(targetTab) targetTab.classList.add('active');
-            if (event && event.currentTarget) {
-                event.currentTarget.classList.add('active');
+            
+            // Trova il pulsante della navbar corrispondente e attivalo
+            const navButtons = document.querySelectorAll('nav .nav-item');
+            navButtons.forEach(btn => {
+                if(btn.getAttribute('onclick').includes(tabId)) {
+                    btn.classList.add('active');
+                }
+            });
+
+            if(tabId === 'votazione') {
+                popolaSelectMatchVotazione();
             }
         }
 
@@ -1000,6 +1012,8 @@
             currentMatch.teamNeri.forEach(p => {
                 nList.appendChild(createPlayerTeamItem(p, 'neri'));
             });
+
+            calcolaPunteggioAutomatico();
         }
 
         function createPlayerTeamItem(name, team) {
@@ -1014,7 +1028,7 @@
                     <div class="player-row-controls">
                         <button class="btn-ctrl btn-cap ${isCap ? 'is-cap' : ''}" onclick="setCapitano('${team}', '${name}')">Cap</button>
                         <button class="btn-ctrl" onclick="modificaGolPartita('${name}', -1)">-</button>
-                        <span style="font-weight:bold; min-width:15px; text-align:center;">${goals}g</span>
+                        <span style="font-weight:bold; min-width:18px; text-align:center;">${goals}g</span>
                         <button class="btn-ctrl" onclick="modificaGolPartita('${name}', 1)">+</button>
                     </div>
                 </div>
@@ -1043,6 +1057,24 @@
             renderFormazioni();
         }
 
+        function calcolaPunteggioAutomatico() {
+            let scoreG = 0;
+            let scoreN = 0;
+
+            currentMatch.teamGialli.forEach(p => {
+                scoreG += (currentMatch.goals[p] || 0);
+            });
+
+            currentMatch.teamNeri.forEach(p => {
+                scoreN += (currentMatch.goals[p] || 0);
+            });
+
+            const inputG = document.getElementById('score-gialli');
+            const inputN = document.getElementById('score-neri');
+            if(inputG) inputG.value = scoreG;
+            if(inputN) inputN.value = scoreN;
+        }
+
         function salvaPartita() {
             const date = document.getElementById('match-date').value;
             const scoreGialli = parseInt(document.getElementById('score-gialli').value) || 0;
@@ -1058,7 +1090,7 @@
                     m.teamNeri = currentMatch.teamNeri;
                     m.capitanoGialli = currentMatch.capitanoGialli;
                     m.capitanoNeri = currentMatch.capitanoNeri;
-                    m.goals = currentMatch.goals;
+                    m.goals = { ...currentMatch.goals };
                 }
                 editingMatchId = null;
             } else {
@@ -1104,6 +1136,13 @@
             }
 
             [...matches].reverse().forEach(m => {
+                // Genera la lista marcatori per la card dello storico
+                let marcatoriHtml = '';
+                if(m.goals) {
+                    let listaMarcatori = Object.entries(m.goals).map(([p, gol]) => `${p} (${gol})`).join(', ');
+                    if(listaMarcatori) marcatoriHtml = `<div style="font-size:0.75rem; color:var(--text-light); text-align:center; margin-top:4px;">⚽ Marcatori: ${listaMarcatori}</div>`;
+                }
+
                 const card = document.createElement('div');
                 card.className = 'card';
                 card.innerHTML = `
@@ -1114,9 +1153,10 @@
                             <button class="btn btn-sm btn-danger" onclick="eliminaPartita(${m.id})"><i class="fas fa-trash"></i></button>
                         </div>
                     </div>
-                    <div style="font-size: 1.1rem; font-weight: bold; text-align: center; margin-bottom: 10px;">
+                    <div style="font-size: 1.1rem; font-weight: bold; text-align: center; margin-bottom: 4px;">
                         <span style="color: var(--primary);">GIALLI ${m.scoreGialli}</span> - <span style="color: #aaa;">${m.scoreNeri} NERI</span>
                     </div>
+                    ${marcatoriHtml}
                 `;
                 container.appendChild(card);
             });
@@ -1188,10 +1228,16 @@
             const sel = document.getElementById('voting-match-select');
             if(!sel) return;
             sel.innerHTML = '<option value="">-- Seleziona la partita da votare --</option>';
-            matches.forEach(m => {
+            
+            // Ordina le partite per ID o data
+            let sortedMatches = [...matches].sort((a,b) => b.id - a.id);
+            let latestMatchId = sortedMatches.length > 0 ? sortedMatches[0].id : null;
+
+            sortedMatches.forEach(m => {
                 const opt = document.createElement('option');
                 opt.value = m.id;
-                opt.innerText = `Partita del ${m.date} (Gialli ${m.scoreGialli} - ${m.scoreNeri} Neri)`;
+                let isLatest = (m.id === latestMatchId);
+                opt.innerText = `Partita del ${m.date} (Gialli ${m.scoreGialli} - ${m.scoreNeri} Neri) ${isLatest ? '⭐ (Ultima)' : '🔒'}`;
                 sel.appendChild(opt);
             });
         }
@@ -1199,10 +1245,32 @@
         function onVotingMatchChange() {
             const matchId = document.getElementById('voting-match-select').value;
             const voterSelect = document.getElementById('voter-name-select');
-            if (!matchId || !voterSelect) return;
+            const lockedNotice = document.getElementById('voting-locked-notice');
+            const voterWrapper = document.getElementById('voter-select-wrapper');
+            const container = document.getElementById('voting-fields-container');
+            
+            if (!matchId) {
+                if(container) container.style.display = 'none';
+                if(lockedNotice) lockedNotice.style.display = 'none';
+                return;
+            }
+
+            let sortedMatches = [...matches].sort((a,b) => b.id - a.id);
+            let latestMatchId = sortedMatches.length > 0 ? sortedMatches[0].id : null;
+
+            // Blocco votazioni se non è l'ultima partita registrata
+            if (parseInt(matchId) !== latestMatchId) {
+                if(lockedNotice) lockedNotice.style.display = 'block';
+                if(voterWrapper) voterWrapper.style.display = 'none';
+                if(container) container.style.display = 'none';
+                return;
+            } else {
+                if(lockedNotice) lockedNotice.style.display = 'none';
+                if(voterWrapper) voterWrapper.style.display = 'flex';
+            }
 
             let m = matches.find(x => x.id == matchId);
-            if (!m) return;
+            if (!m || !voterSelect) return;
 
             voterSelect.innerHTML = '<option value="">-- Chi sei? (Seleziona il tuo nome) --</option>';
             let partecipanti = [...m.teamGialli, ...m.teamNeri];
@@ -1212,6 +1280,7 @@
                 opt.innerText = p;
                 voterSelect.appendChild(opt);
             });
+            renderPagelloneSelezionato(m);
         }
 
         function inipaginaVotazione() {
@@ -1256,15 +1325,123 @@
         }
 
         function inviaVotiCloud() {
-            alert("Funzione voti cloud pronta!");
+            const matchId = document.getElementById('voting-match-select').value;
+            const voter = document.getElementById('voter-name-select').value;
+            if(!matchId || !voter) return;
+
+            let m = matches.find(x => x.id == matchId);
+            if(!m) return;
+
+            let team = m.teamGialli.includes(voter) ? m.teamGialli : m.teamNeri;
+            let compagni = team.filter(p => p !== voter);
+
+            if(!ratings[matchId]) ratings[matchId] = {};
+            if(!ratings[matchId][voter]) ratings[matchId][voter] = {};
+
+            compagni.forEach(comp => {
+                const selectEl = document.getElementById(`voto-${comp}`);
+                if(selectEl) {
+                    ratings[matchId][voter][comp] = parseFloat(selectEl.value);
+                }
+            });
+
+            if (dbRef) {
+                dbRef.set(ratings).then(() => {
+                    alert("Voti inviati e sincronizzati sul Cloud con successo!");
+                }).catch(err => {
+                    alert("Errore di sincronizzazione cloud: " + err.message);
+                });
+            } else {
+                localStorage.setItem('futsal_ratings', JSON.stringify(ratings));
+                alert("Voti salvati in locale!");
+            }
+            renderPagelloneSelezionato(m);
         }
 
         function renderPagellone() {
-            // Semplificato
+            const sel = document.getElementById('voting-match-select');
+            if(sel && sel.value) {
+                let m = matches.find(x => x.id == sel.value);
+                if(m) renderPagelloneSelezionato(m);
+            }
+        }
+
+        function renderPagelloneSelezionato(m) {
+            const tbody = document.getElementById('tbody-pagellone');
+            if(!tbody) return;
+            tbody.innerHTML = '';
+
+            let matchRatings = ratings[m.id] || {};
+            let sommaVoti = {};
+            let numVoti = {};
+
+            let partecipanti = [...m.teamGialli, [...m.teamNeri]].flat();
+
+            Object.values(matchRatings).forEach(voterMap => {
+                Object.entries(voterMap).forEach(([targetPlayer, vote]) => {
+                    if(!sommaVoti[targetPlayer]) { sommaVoti[targetPlayer] = 0; numVoti[targetPlayer] = 0; }
+                    sommaVoti[targetPlayer] += vote;
+                    numVoti[targetPlayer]++;
+                });
+            });
+
+            let risultatiMedie = partecipanti.map(p => {
+                let count = numVoti[p] || 0;
+                let avg = count > 0 ? (sommaVoti[p] / count).toFixed(2) : '-';
+                return { name: p, avg: avg, count: count };
+            }).filter(x => x.count > 0);
+
+            risultatiMedie.sort((a,b) => b.avg - a.avg);
+
+            if(risultatiMedie.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; color:#888;">Nessun voto registrato per questa partita</td></tr>';
+                return;
+            }
+
+            risultatiMedie.forEach(r => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><strong>${r.name}</strong></td>
+                    <td class="number"><span class="avg-badge">${r.avg}</span></td>
+                    <td class="number">${r.count}</td>
+                `;
+                tbody.appendChild(tr);
+            });
         }
 
         function copiaPagelleWA() {
-            alert("Copia WhatsApp");
+            const sel = document.getElementById('voting-match-select');
+            if(!sel || !sel.value) {
+                alert("Seleziona prima una partita nello storico votazioni!");
+                return;
+            }
+            let m = matches.find(x => x.id == sel.value);
+            if(!m) return;
+
+            let matchRatings = ratings[m.id] || {};
+            let sommaVoti = {};
+            let numVoti = {};
+            let partecipanti = [...m.teamGialli, ...m.teamNeri];
+
+            Object.values(matchRatings).forEach(voterMap => {
+                Object.entries(voterMap).forEach(([targetPlayer, vote]) => {
+                    if(!sommaVoti[targetPlayer]) { sommaVoti[targetPlayer] = 0; numVoti[targetPlayer] = 0; }
+                    sommaVoti[targetPlayer] += vote;
+                    numVoti[targetPlayer]++;
+                });
+            });
+
+            let text = `📊 *PAGELLONE FUTSAL CLAN* \n📅 Partita del ${m.date}\n⚽ Risultato: Gialli ${m.scoreGialli} - ${m.scoreNeri} Neri\n\n`;
+            
+            partecipanti.forEach(p => {
+                let count = numVoti[p] || 0;
+                let avg = count > 0 ? (sommaVoti[p] / count).toFixed(2) : 'S.V.';
+                text += `▪️ *${p}*: ${avg} _(${count} voti)_\n`;
+            });
+
+            navigator.clipboard.writeText(text).then(() => {
+                alert("Pagellone copiato negli appunti pronto per WhatsApp!");
+            });
         }
 
         function esportaPDF() {
