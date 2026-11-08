@@ -2,29 +2,338 @@
 <html lang="it">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestione Futsal & Pagelle</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Futsal Clan - Gestione Calcetto & Pagelle</title>
     
-    <!-- Meta tag per bloccare la cache della pagina HTML -->
+    <!-- Meta tag per bloccare la cache del browser -->
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
 
-    <!-- CSS principale con versione (aggiorna il numerino ?v=1.x ad ogni modifica) -->
-    <link rel="stylesheet" href="style.css?v=1.0">
-</head>
-<body>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- CSS principale con versione anti-cache -->
+    <link rel="stylesheet" href="style.css?v=1.1">
 
-    <!-- QUI VA IL CONTENUTO DELLA TUA APP -->
-    <div id="app">
-        <!-- Interfaccia dell'app -->
-    </div>
+    <!-- Firebase SDK (Compat Version per GitHub Pages) -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+    <style>
+        :root {
+            --primary: #fbc02d;
+            --primary-dark: #f57f17;
+            --accent: #212121;
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --card-bg-light: #2a2a2a;
+            --text: #ffffff;
+            --text-light: #b0b0b0;
+            --gialli-bg: #332b00;
+            --gialli-border: #fbc02d;
+            --neri-bg: #212121;
+            --neri-border: #616161;
+            --danger: #d32f2f;
+            --success: #388e3c;
+        }
 
-    <!-- Firebase SDK (Versioni stabili) -->
-    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
 
-    <!-- Script principale dell'app con versione anti-cache -->
-    <script src="app.js?v=1.0"></script>
-</body>
-</html>
+        body {
+            background-color: var(--bg-color);
+            color: var(--text);
+            padding-bottom: 75px;
+        }
+
+        header {
+            background: linear-gradient(135deg, #000000, #212121);
+            color: var(--primary);
+            padding: 16px;
+            text-align: center;
+            border-bottom: 2px solid var(--primary);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        header h1 {
+            font-size: 1.3rem;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            letter-spacing: 0.5px;
+        }
+
+        nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: #181818;
+            display: flex;
+            justify-content: space-around;
+            padding: 8px 0;
+            border-top: 1px solid #333;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: var(--text-light);
+            text-decoration: none;
+            font-size: 0.7rem;
+            cursor: pointer;
+            border: none;
+            background: none;
+            width: 20%;
+        }
+
+        .nav-item i {
+            font-size: 1.2rem;
+            margin-bottom: 3px;
+        }
+
+        .nav-item.active {
+            color: var(--primary);
+            font-weight: bold;
+        }
+
+        .container {
+            padding: 12px;
+            max-width: 650px;
+            margin: 0 auto;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+
+        .card-title {
+            font-size: 1.05rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: var(--primary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .btn {
+            background-color: var(--primary);
+            color: #000000;
+            border: none;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            font-size: 0.88rem;
+            transition: all 0.2s;
+            width: 100%;
+        }
+
+        .btn:active {
+            transform: scale(0.98);
+            opacity: 0.9;
+        }
+
+        .btn-secondary {
+            background-color: #333;
+            color: var(--text);
+        }
+
+        .btn-danger {
+            background-color: var(--danger);
+            color: white;
+        }
+
+        .btn-success {
+            background-color: var(--success);
+            color: white;
+        }
+
+        .btn-sm {
+            padding: 5px 8px;
+            font-size: 0.78rem;
+            width: auto;
+            border-radius: 6px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        input[type="text"], input[type="date"], input[type="number"], select {
+            padding: 8px 10px;
+            background: #2a2a2a;
+            color: white;
+            border: 1px solid #444;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            outline: none;
+            width: 100%;
+        }
+
+        .table-responsive {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 0.8rem;
+        }
+
+        th, td {
+            padding: 8px 4px;
+            border-bottom: 1px solid #333;
+            white-space: nowrap;
+        }
+
+        th {
+            background-color: #262626;
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        td.number, th.number {
+            text-align: center;
+        }
+
+        .rank-pos {
+            font-weight: bold;
+            width: 22px;
+            height: 22px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            background-color: #333;
+            font-size: 0.75rem;
+            color: #fff;
+        }
+
+        .rank-1 { background-color: #ffd700; color: #000; }
+        .rank-2 { background-color: #c0c0c0; color: #000; }
+        .rank-3 { background-color: #cd7f32; color: #fff; }
+
+        .player-selector {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(125px, 1fr));
+            gap: 6px;
+            margin-bottom: 14px;
+            max-height: 250px;
+            overflow-y: auto;
+            padding: 2px;
+        }
+
+        .player-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: #2a2a2a;
+            padding: 6px 8px;
+            border-radius: 6px;
+            font-size: 0.82rem;
+            cursor: pointer;
+            user-select: none;
+            border: 1px solid #3d3d3d;
+        }
+
+        .player-checkbox input {
+            accent-color: var(--primary);
+        }
+
+        .team-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+
+        .team-box {
+            padding: 8px;
+            border-radius: 8px;
+            border: 2px solid transparent;
+            min-height: 180px;
+        }
+
+        .team-gialli {
+            background-color: var(--gialli-bg);
+            border-color: var(--gialli-border);
+        }
+
+        .team-neri {
+            background-color: var(--neri-bg);
+            border-color: var(--neri-border);
+        }
+
+        .team-header {
+            font-weight: bold;
+            font-size: 0.85rem;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .team-player-list {
+            list-style: none;
+        }
+
+        .team-player-item {
+            padding: 6px 6px;
+            margin-bottom: 6px;
+            background: #2a2a2a;
+            border-radius: 6px;
+            font-size: 0.78rem;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            border: 1px solid #3a3a3a;
+        }
+
+        .player-row-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .player-row-controls {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .btn-ctrl {
